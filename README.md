@@ -58,7 +58,10 @@ Crypto / storage / HTTP / fingerprint are pluggable (`config.adapters`). Default
 WebCrypto (web + Node), in-memory token storage (secure default — inject your own
 to persist), global `fetch`. React Native must inject a crypto adapter until v0.2.
 
-> The data routes (`GET /headless/v1/sdk/...`) are the agreed cross-repo contract
-> (core-utils scope map) but are not yet served by headless — they land in the
-> ONR-533 headless follow-up. Base URLs in `src/config/defaults.ts` still need
-> verification against the live environments.
+> The data routes (`GET /supported/v2/sdk`, `/quotes/v2/sdk/...`,
+> `/transactions/v2/sdk/...`) are versioned endpoints owned by each service —
+> the agreed cross-repo contract (core-utils scope map) — and land in the
+> ONR-533 per-service follow-ups. The headless BFF is attested-clients-only;
+> this package's tokens never reach it beyond the OAuth bootstrap proxy. Base
+> URLs in `src/config/defaults.ts` still need verification against the live
+> environments.
