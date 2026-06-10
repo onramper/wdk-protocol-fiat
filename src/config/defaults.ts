@@ -11,7 +11,8 @@ interface EnvUrls {
 }
 
 /**
- * Per-environment base URLs. Sandbox and staging point at the staging stack;
+ * Per-environment base URLs (hosts verified against the iOS SDK's
+ * OnramperConfiguration). Sandbox and staging point at the staging stack;
  * they are split so a consumer can opt into "sandbox semantics" explicitly.
  * Override either via `OnramperFiatConfig.baseUrl` / `.widgetBaseUrl`.
  */
@@ -21,11 +22,11 @@ export const ENVIRONMENT_URLS: Readonly<Record<OnramperEnvironment, EnvUrls>> = 
     widgetBaseUrl: 'https://buy.onramper.com',
   },
   sandbox: {
-    apiBaseUrl: 'https://api.stg.onramper.com',
-    widgetBaseUrl: 'https://buy.stg.onramper.com',
+    apiBaseUrl: 'https://api-stg.onramper.com',
+    widgetBaseUrl: 'https://buy.onramper.dev',
   },
   staging: {
-    apiBaseUrl: 'https://api.stg.onramper.com',
-    widgetBaseUrl: 'https://buy.stg.onramper.com',
+    apiBaseUrl: 'https://api-stg.onramper.com',
+    widgetBaseUrl: 'https://buy.onramper.dev',
   },
 };
