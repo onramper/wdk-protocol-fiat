@@ -1,6 +1,6 @@
 /**
  * Base64url helpers with no `Buffer` dependency, so the same code runs in the
- * browser, Node and React Native. `btoa`/`atob` are available in all three
+ * browser and Node. `btoa`/`atob` are available in both
  * (RN/Hermes included).
  */
 

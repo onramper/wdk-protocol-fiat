@@ -1,7 +1,7 @@
 /**
  * Platform abstraction seam. The protocol and client layers only ever touch
  * these four interfaces, never a platform API directly — this is what lets one
- * package run on web, Node and React Native. It mirrors the dependency-injection
+ * package run on web and Node. It mirrors the dependency-injection
  * seam the Swift SDK uses (BFFClient / TokenStorage / AppAttestService protocols).
  *
  * Each adapter has a per-platform default (see `src/adapters/index.ts`) and can
@@ -13,7 +13,7 @@
  * Opaque handle to an ES256 (P-256) key pair used for DPoP proof-of-possession.
  * The private key is intentionally non-serialisable: on web/Node it is a
  * non-extractable `CryptoKey`/`KeyObject` so it cannot be exfiltrated by XSS;
- * on React Native it lives in JS memory (documented caveat — no Secure Enclave).
+ * a future React Native adapter would hold it in JS memory (no Secure Enclave).
  */
 export interface Es256KeyHandle {
   readonly privateKey: unknown;
@@ -28,7 +28,7 @@ export interface CryptoAdapter {
   /**
    * Sign `data` with the private key, returning the raw IEEE-P1363 r||s
    * signature (64 bytes) — NOT DER. JOSE compact serialization requires r||s,
-   * and WebCrypto already produces it; the noble adapter must match.
+   * and WebCrypto already produces it; any injected adapter must match.
    */
   signEs256(handle: Es256KeyHandle, data: Uint8Array): Promise<Uint8Array>;
   /** SHA-256 digest, used for DPoP `ath`, fingerprints and the JWK thumbprint. */

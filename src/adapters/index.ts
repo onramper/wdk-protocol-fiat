@@ -7,14 +7,14 @@ import { createFetchHttpAdapter } from './http/fetch.ts';
 import { createMemoryStorageAdapter } from './storage/memory.ts';
 import type { Adapters } from './types.ts';
 
-export type RuntimeKind = 'web' | 'node' | 'react-native';
+export type RuntimeKind = 'web' | 'node';
 
-/** Best-effort runtime detection. Order matters: RN reports a `navigator`, so check it first. */
+/**
+ * Best-effort runtime detection. React Native (which also reports a
+ * `navigator`) is unsupported — runtimes without WebCrypto fail at adapter
+ * resolution with a clear error rather than being misdetected as web.
+ */
 export function detectRuntime(): RuntimeKind {
-  const nav = (globalThis as { navigator?: { product?: string } }).navigator;
-  if (nav?.product === 'ReactNative') {
-    return 'react-native';
-  }
   if (typeof (globalThis as { window?: unknown }).window !== 'undefined' && globalThis.crypto?.subtle) {
     return 'web';
   }
@@ -23,21 +23,13 @@ export function detectRuntime(): RuntimeKind {
 
 /** Maps a runtime to its reported `X-Onramper-Channel` value (WDK family). */
 export function channelForRuntime(runtime: RuntimeKind): OnramperChannel {
-  switch (runtime) {
-    case 'web':
-      return 'wdk-web';
-    case 'react-native':
-      return 'wdk-rn';
-    case 'node':
-      return 'wdk-node';
-  }
+  return runtime === 'web' ? 'wdk-web' : 'wdk-node';
 }
 
 /**
  * Builds the full adapter set, applying any consumer overrides over the
- * per-runtime defaults. React Native has no WebCrypto and no fully-featured
- * default yet (v0.2), so it requires an injected `crypto` adapter — we fail
- * loudly rather than silently degrade security.
+ * per-runtime defaults. Environments without WebCrypto must inject a `crypto`
+ * adapter — we fail loudly rather than silently degrade security.
  */
 export function resolveAdapters(runtime: RuntimeKind, overrides?: Partial<Adapters>): Adapters {
   const storage = overrides?.storage ?? createMemoryStorageAdapter();
@@ -45,10 +37,10 @@ export function resolveAdapters(runtime: RuntimeKind, overrides?: Partial<Adapte
 
   let crypto = overrides?.crypto;
   if (!crypto) {
-    if (runtime === 'react-native') {
+    if (!globalThis.crypto?.subtle) {
       throw new OnramperError(
         OnramperErrorCode.INVALID_CONFIG,
-        'React Native has no built-in WebCrypto. Provide config.adapters.crypto (a @noble/curves-backed adapter ships in v0.2).',
+        'This runtime has no WebCrypto (crypto.subtle). Provide config.adapters.crypto.',
       );
     }
     crypto = createWebCryptoAdapter();

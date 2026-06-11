@@ -1,8 +1,8 @@
 # @onramper/wdk-protocol-fiat
 
-Onramper implementation of Tether's WDK [`IFiatProtocol`](https://github.com/tetherto/wdk-wallet/blob/main/src/protocols/fiat-protocol.js). Cross-platform: web, Node, and React Native from a single package. Mirrors [`@tetherto/wdk-protocol-fiat-moonpay`](https://github.com/tetherto/wdk-protocol-fiat-moonpay).
+Onramper implementation of Tether's WDK [`IFiatProtocol`](https://github.com/tetherto/wdk-wallet/blob/main/src/protocols/fiat-protocol.js) for web and Node. Mirrors [`@tetherto/wdk-protocol-fiat-moonpay`](https://github.com/tetherto/wdk-protocol-fiat-moonpay).
 
-> Status: v0.1 (web + Node). React Native crypto adapter lands in v0.2.
+> Status: v0.1 (web + Node). React Native is out of scope for now.
 
 ## Install
 
@@ -55,7 +55,7 @@ const { buyUrl } = await fiat.buy({ fiatCurrency: 'usd', cryptoAsset: 'eth', fia
 
 Crypto / storage / HTTP / fingerprint are pluggable (`config.adapters`). Defaults:
 WebCrypto (web + Node), in-memory token storage (secure default — inject your own
-to persist), global `fetch`. React Native must inject a crypto adapter until v0.2.
+to persist), global `fetch`.
 
 > Checkout v2's session-envelope acceptance (the `getTransactionDetail` path)
 > is a server-side follow-up; the public data endpoints work today. The

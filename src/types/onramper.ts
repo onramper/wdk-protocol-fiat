@@ -7,8 +7,9 @@ export type OnramperEnvironment = 'production' | 'sandbox' | 'staging';
  * Client channel reported in `X-Onramper-Channel`. The WDK adapter uses the
  * `wdk-*` family (not `sdk-*`) so the server can tell WDK traffic apart from
  * our first-party SDKs. Must match a server-side VALID_CHANNELS entry.
+ * React Native (`wdk-rn`) is out of scope for now — web and Node only.
  */
-export type OnramperChannel = 'wdk-web' | 'wdk-rn' | 'wdk-node';
+export type OnramperChannel = 'wdk-web' | 'wdk-node';
 
 /**
  * Parameters handed to the consumer's `signUrl` callback for buy/sell. These are

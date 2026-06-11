@@ -18,14 +18,7 @@ export interface EnvelopeInput {
  * `wdk-web` → `web` yields `X-Onramper-SDK-Version: web-<semver>`.
  */
 function platformForChannel(channel: OnramperChannel): string {
-  switch (channel) {
-    case 'wdk-web':
-      return 'web';
-    case 'wdk-rn':
-      return 'rn';
-    case 'wdk-node':
-      return 'node';
-  }
+  return channel === 'wdk-web' ? 'web' : 'node';
 }
 
 /**

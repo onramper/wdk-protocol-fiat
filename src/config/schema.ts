@@ -15,7 +15,7 @@ const configSchema = z.object({
   baseUrl: z.string().url().optional(),
   widgetBaseUrl: z.string().url().optional(),
   cacheTime: z.number().int().nonnegative().optional(),
-  channel: z.enum(['wdk-web', 'wdk-rn', 'wdk-node']).optional(),
+  channel: z.enum(['wdk-web', 'wdk-node']).optional(),
   adapters: z.object({}).passthrough().optional(),
 });
 
