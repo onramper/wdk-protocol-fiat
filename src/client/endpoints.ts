@@ -15,9 +15,15 @@ export class Endpoints {
     this.apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
   }
 
-  /** Token exchange / refresh (RFC 6749-style OAuth wire format). */
+  /**
+   * Token exchange / refresh (RFC 6749-style OAuth wire format).
+   *
+   * Routes directly to the partners-api public tier-2 route; the DPoP `htu`
+   * the client signs is this exact URL, so it binds proof-of-possession to the
+   * correct origin and path (WS2/WS5 contract).
+   */
   tokens(apiKey: string): string {
-    return `${this.apiBaseUrl}/headless/v1/sdk/partners/${encodeURIComponent(apiKey)}/client-sessions/tokens`;
+    return `${this.apiBaseUrl}/partners/v2/${encodeURIComponent(apiKey)}/client-sessions/tokens`;
   }
 
   supported(): string {
