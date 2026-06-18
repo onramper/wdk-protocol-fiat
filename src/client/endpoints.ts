@@ -16,11 +16,9 @@ export class Endpoints {
   }
 
   /**
-   * Token exchange / refresh (RFC 6749-style OAuth wire format).
-   *
-   * Routes directly to the partners-api public tier-2 route; the DPoP `htu`
-   * the client signs is this exact URL, so it binds proof-of-possession to the
-   * correct origin and path (WS2/WS5 contract).
+   * Routes directly to the partners-api public tier-2 route. The client signs
+   * its DPoP `htu` against this exact URL, so partners-api must reconstruct the
+   * same origin + path to verify proof-of-possession (WS2/WS5 contract).
    */
   tokens(apiKey: string): string {
     return `${this.apiBaseUrl}/partners/v2/${encodeURIComponent(apiKey)}/client-sessions/tokens`;
@@ -38,7 +36,6 @@ export class Endpoints {
     return `${this.apiBaseUrl}/quotes/${encodeURIComponent(source)}/${encodeURIComponent(destination)}`;
   }
 
-  /** Checkout v2 transaction lookup, keyed by the checkout session id. */
   checkoutTransaction(sessionId: string): string {
     return `${this.apiBaseUrl}/checkout/session/${encodeURIComponent(sessionId)}/transaction`;
   }
