@@ -1,6 +1,7 @@
 import type { Adapters, Es256KeyHandle } from '../adapters/types.ts';
 import { mapOAuthError, OnramperError, OnramperErrorCode } from '../errors/index.ts';
 import type { GetSessionToken, OnramperChannel } from '../types/onramper.ts';
+import { parseJsonBody } from '../utils/json.ts';
 import { buildDpopProof } from './dpop.ts';
 import type { Endpoints } from './endpoints.ts';
 import { newNonce } from './headers.ts';
@@ -105,7 +106,18 @@ export class SessionManager {
   }
 
   private async bootstrap(): Promise<string> {
-    const { sessionId, sessionToken } = await this.deps.getSessionToken();
+    // getSessionToken is consumer-supplied (it makes the partner's Security-V2
+    // call), so any throw — fetch rejection, timeout — must still reach callers
+    // as the library's one error type, not a raw exception.
+    let sessionId: string;
+    let sessionToken: string;
+    try {
+      ({ sessionId, sessionToken } = await this.deps.getSessionToken());
+    } catch (err) {
+      throw err instanceof OnramperError
+        ? err
+        : new OnramperError(OnramperErrorCode.UPSTREAM_ERROR, 'getSessionToken callback failed', { cause: err });
+    }
     this.sessionId = sessionId;
     const fingerprint = await this.getFingerprint();
     // The device fingerprint rides on the X-Onramper-Device HEADER (SDK-SPEC §5);
@@ -181,7 +193,7 @@ export class SessionManager {
     });
 
     if (res.status >= 200 && res.status < 300) {
-      return JSON.parse(res.body) as TokenResponse;
+      return parseJsonBody<TokenResponse>(res.body);
     }
 
     const parsed = safeJson(res.body);
