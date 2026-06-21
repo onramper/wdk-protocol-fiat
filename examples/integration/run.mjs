@@ -22,7 +22,10 @@ const signUrl = process.env.ONRAMPER_SIGN_URL
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(params),
       });
-      return (await r.json()).url;
+      if (!r.ok) throw new Error(`sign-url backend returned HTTP ${r.status}`);
+      const body = await r.json().catch(() => ({}));
+      if (typeof body.url !== 'string') throw new Error('sign-url backend did not return { url: string }');
+      return body.url;
     }
   : async (params) => {
       const q = new URLSearchParams(
@@ -40,7 +43,17 @@ const getSessionToken = haveSession
   : undefined;
 const checkoutSessionId = process.env.ONRAMPER_CHECKOUT_SESSION_ID ?? 'sess_example';
 
-const fiat = new OnramperFiatProtocol(undefined, { apiKey: API_KEY, environment: ENV, signUrl, getSessionToken });
+let fiat;
+try {
+  fiat = new OnramperFiatProtocol(undefined, { apiKey: API_KEY, environment: ENV, signUrl, getSessionToken });
+} catch (e) {
+  const code = e instanceof OnramperError ? `${e.code}: ` : '';
+  console.error(`\nCould not initialise the SDK — ${code}${e.message ?? e}`);
+  process.exit(2);
+}
+
+/** Strip secrets/PII (apiKey, address) from a URL before logging. */
+const redact = (url) => String(url).replace(/([?&](?:apiKey|address)=)[^&]*/gi, '$1***');
 
 const C = {
   reset: '\x1b[0m',
@@ -95,7 +108,9 @@ const Q_UNAVAIL = [
   OnramperErrorCode.UNSUPPORTED_ASSET,
 ];
 
-console.log(`\n@onramper/wdk-protocol-fiat — integration run (env=${ENV}, key=${API_KEY.slice(0, 12)}…)`);
+// Log only the key TYPE (pk_test_/pk_prod_), never the identifier.
+const keyType = API_KEY.replace(/^(pk_(?:test|prod)_).*/i, '$1***');
+console.log(`\n@onramper/wdk-protocol-fiat — integration run (env=${ENV}, key=${keyType})`);
 
 group('Supported');
 await scenario('getSupportedCryptoAssets()', () => fiat.getSupportedCryptoAssets(), {
@@ -144,7 +159,7 @@ await scenario(
       fiatAmount: 120,
       recipient: '0xabc0000000000000000000000000000000000001',
     }),
-  { summarize: (r) => r.buyUrl.slice(0, 64) + '…' },
+  { summarize: (r) => `${redact(r.buyUrl).slice(0, 72)}…` },
 );
 await scenario(
   'buy eur→btc 500 + quoteId + network',
@@ -164,7 +179,9 @@ await scenario(
   () => fiat.sell({ fiatCurrency: 'usd', cryptoAsset: 'eth', cryptoAmount: '0.25', refundAddress: '0xrefund' }),
   {
     summarize: (r) =>
-      r.sellUrl.includes('mode=sell') || r.sellUrl.includes('direction=sell') ? 'sell URL ✓' : r.sellUrl.slice(0, 50),
+      r.sellUrl.includes('mode=sell') || r.sellUrl.includes('direction=sell')
+        ? 'sell URL ✓'
+        : redact(r.sellUrl).slice(0, 50),
   },
 );
 
