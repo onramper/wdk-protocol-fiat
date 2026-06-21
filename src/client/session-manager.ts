@@ -1,5 +1,5 @@
 import type { Adapters, Es256KeyHandle } from '../adapters/types.ts';
-import { mapOAuthError, OnramperError, OnramperErrorCode } from '../errors/index.ts';
+import { mapOAuthError, OnramperError, OnramperErrorCode, REBOOTSTRAP_CODES } from '../errors/index.ts';
 import type { GetSessionToken, OnramperChannel } from '../types/onramper.ts';
 import { parseJsonBody } from '../utils/json.ts';
 import { buildDpopProof } from './dpop.ts';
@@ -103,9 +103,10 @@ export class SessionManager {
       try {
         return await this.refresh();
       } catch (err) {
-        // A failed refresh is recoverable by re-bootstrapping from a fresh
-        // session token; surface anything that isn't an OAuth-level rejection.
-        if (!(err instanceof OnramperError)) {
+        // Only a dead-session rejection (bad refresh credential) is recoverable
+        // by re-bootstrapping. A decode/transport/DPoP failure must surface —
+        // re-bootstrapping would mask it and likely fail the same way.
+        if (!(err instanceof OnramperError) || !REBOOTSTRAP_CODES.has(err.code)) {
           throw err;
         }
         this.reset();

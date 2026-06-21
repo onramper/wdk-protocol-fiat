@@ -227,6 +227,27 @@ describe('token lifecycle', () => {
     expect(mint).toBe(1); // refresh failed raw → not re-bootstrapped (session preserved)
   });
 
+  it('a malformed refresh response surfaces DECODE_ERROR, not a silent re-bootstrap', async () => {
+    let mint = 0;
+    const http = mockHttp([
+      {
+        match: 'client-sessions/tokens',
+        handler: (req) => {
+          if (JSON.parse(req.body ?? '{}').grant_type === 'refresh_token') {
+            return raw(200, '{bad json');
+          }
+          mint += 1;
+          return json(200, { access_token: 'at', refresh_token: 'rt', expires_in: -1, tier: 1 });
+        },
+      },
+      txOk,
+    ]);
+    const p = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+    await p.getTransactionDetail('s'); // bootstrap mints an already-expired token
+    await expect(p.getTransactionDetail('s')).rejects.toMatchObject({ code: OnramperErrorCode.DECODE_ERROR });
+    expect(mint).toBe(1); // surfaced, NOT masked by a re-bootstrap
+  });
+
   it('concurrent callers coalesce into a single token exchange (single-flight)', async () => {
     let mints = 0;
     const http = mockHttp([
@@ -249,6 +270,19 @@ describe('quote selection requires a priced entry', () => {
   it('an error-free entry without a rate is treated as no-quote', async () => {
     const http = mockHttp([
       { match: '/quotes/', handler: () => json(200, [{ ramp: 'p', paymentMethod: 'creditcard', quoteId: 'q1' }]) },
+    ]);
+    await expect(
+      new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() })).quoteBuy({
+        fiatCurrency: 'usd',
+        cryptoAsset: 'eth',
+        fiatAmount: 100,
+      }),
+    ).rejects.toMatchObject({ code: OnramperErrorCode.QUOTE_UNAVAILABLE });
+  });
+
+  it('a null rate is not treated as priced', async () => {
+    const http = mockHttp([
+      { match: '/quotes/', handler: () => json(200, [{ ramp: 'p', rate: null, paymentMethod: 'creditcard' }]) },
     ]);
     await expect(
       new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() })).quoteBuy({
