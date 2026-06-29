@@ -69,8 +69,6 @@ export interface OnramperFiatConfig {
   environment?: OnramperEnvironment;
   /** Overrides the environment's base API URL. */
   baseUrl?: string;
-  /** Overrides the environment's hosted widget base URL used by buy/sell. */
-  widgetBaseUrl?: string;
   /** TTL in ms for cached supported lists. Defaults to 5 minutes. */
   cacheTime?: number;
   /** Channel reported to the server. Inferred from the runtime when omitted. */

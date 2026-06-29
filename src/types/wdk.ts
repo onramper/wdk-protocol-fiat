@@ -111,8 +111,9 @@ export interface SellOptions extends QuoteSellOptions {
 
 /**
  * The WDK fiat-protocol contract. `quoteBuy`/`quoteSell` omit the address field
- * (recipient/refundAddress) since a quote does not move funds. Every method
- * rejects with `OnramperError` (never a raw `Error`).
+ * (recipient/refundAddress) since a quote does not move funds. The data and
+ * session methods reject with `OnramperError`; `buy`/`sell` are pure URL builders
+ * that surface the consumer `signUrl`'s own rejection unwrapped.
  *
  * @see https://github.com/tetherto/wdk-wallet `src/protocols/fiat-protocol.js`
  */
