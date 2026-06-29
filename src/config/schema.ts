@@ -13,7 +13,6 @@ const configSchema = z.object({
   signUrl: z.function(),
   environment: z.enum(['production', 'sandbox', 'staging']).optional(),
   baseUrl: z.string().url().optional(),
-  widgetBaseUrl: z.string().url().optional(),
   cacheTime: z.number().int().nonnegative().optional(),
   channel: z.enum(['wdk-web', 'wdk-node']).optional(),
   adapters: z.object({}).passthrough().optional(),
