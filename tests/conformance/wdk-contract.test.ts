@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OnramperFiatProtocol } from '../../src/index.ts';
+import { decodeProofPayload } from '../dpop-helpers.ts';
 import { baseConfig, json, mockHttp, tokenRoute } from '../helpers.ts';
 
 const WDK_METHODS = [
@@ -33,8 +34,7 @@ describe('IFiatProtocol contract', () => {
       recipient: '0xabc',
     });
 
-    expect(buyUrl).toContain('buy.stg.onramper.com');
-    expect(buyUrl).toContain('address=0xabc');
+    expect(buyUrl).toBe('https://buy.stg.onramper.com/?apiKey=pk_test_abc123&mode=buy&asset=eth&address=0xabc');
     expect(http.calls).toHaveLength(0); // signed-URL path must not touch the network
   });
 
@@ -49,8 +49,7 @@ describe('IFiatProtocol contract', () => {
       refundAddress: 'bc1xyz',
     });
 
-    expect(sellUrl).toContain('mode=sell');
-    expect(sellUrl).toContain('address=bc1xyz');
+    expect(sellUrl).toBe('https://buy.stg.onramper.com/?apiKey=pk_test_abc123&mode=sell&asset=btc&address=bc1xyz');
   });
 
   it('getSupportedCryptoAssets() calls the public supported endpoint with the apiKey alone', async () => {
@@ -136,8 +135,16 @@ describe('IFiatProtocol contract', () => {
 
     const quote = await proto.quoteBuy({ fiatCurrency: 'usd', cryptoAsset: 'eth', fiatAmount: 100 });
 
-    expect(quote.provider).toBe('provider-a');
-    expect(quote.rate).toBe('3000');
+    expect(quote).toEqual({
+      direction: 'buy',
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      fiatAmount: '100',
+      cryptoAmount: '0.033',
+      rate: '3000',
+      paymentMethod: 'creditcard',
+      provider: 'provider-a',
+    });
     const call = http.calls.find((c) => c.url.includes('/quotes/usd/eth'));
     expect(call?.url).toContain('type=buy');
     expect(call?.headers.Authorization).toBe('pk_test_abc123');
@@ -160,13 +167,14 @@ describe('IFiatProtocol contract', () => {
 
     const detail = await proto.getTransactionDetail('sess_abc');
 
-    expect(detail.status).toBe('pending');
-    expect(detail.provider).toBe('provider-a');
+    expect(detail).toEqual({ status: 'pending', cryptoAsset: '', fiatCurrency: '', provider: 'provider-a' });
     // Session-gated path: token exchange first, then the enveloped call.
     expect(http.calls.some((c) => c.url.includes('client-sessions/tokens'))).toBe(true);
     const txCall = http.calls.find((c) => c.url.includes('/checkout/session/'));
     expect(txCall?.headers['X-Onramper-SDK-Session']).toBe('Bearer at_test_token');
-    expect(txCall?.headers['X-Onramper-DPoP']).toBeTruthy();
+    const proof = decodeProofPayload(txCall?.headers['X-Onramper-DPoP'] as string);
+    expect(proof.htm).toBe('GET');
+    expect(proof.htu).toBe('https://api-stg.onramper.com/checkout/session/sess_abc/transaction');
 
     // The bootstrap exchange must send the fingerprint as the X-Onramper-Device
     // HEADER (the API hard-requires it and its body schema discards a body
@@ -222,7 +230,8 @@ describe('IFiatProtocol contract', () => {
       const b = JSON.parse(c.body ?? '{}');
       return b.grant_type === 'refresh_token';
     });
-    expect(refreshCall).toBeTruthy();
+    expect(tokenCalls).toHaveLength(2); // 1 bootstrap + 1 refresh
+    expect(refreshCall).toBeDefined();
     const refreshBody = JSON.parse(refreshCall?.body ?? '{}');
     expect(refreshBody.refresh_token).toBe('rt_test_token');
     expect(refreshBody.session_id).toBe('sess_test');
@@ -237,5 +246,93 @@ describe('IFiatProtocol contract', () => {
 
     await expect(proto.getTransactionDetail('sess_abc')).rejects.toMatchObject({ code: 'invalid_config' });
     expect(http.calls).toHaveLength(0);
+  });
+
+  it('quoteBuy() forwards optional paymentMethod/networkCode/country (network rename)', async () => {
+    const http = mockHttp([
+      {
+        match: '/quotes/usd/eth',
+        handler: () => json(200, [{ rate: 3000, payout: 0.033, ramp: 'provider-a', paymentMethod: 'creditcard' }]),
+      },
+    ]);
+    const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+
+    await proto.quoteBuy({
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      fiatAmount: 100,
+      paymentMethod: 'creditcard',
+      networkCode: 'ethereum',
+      country: 'US',
+    });
+
+    const call = http.calls.find((c) => c.url.includes('/quotes/usd/eth'));
+    expect(call?.url).toBe(
+      'https://api-stg.onramper.com/quotes/usd/eth?type=buy&amount=100&paymentMethod=creditcard&network=ethereum&country=US',
+    );
+  });
+
+  it('quoteSell() forwards optional params with type=sell', async () => {
+    const http = mockHttp([
+      {
+        match: '/quotes/eth/usd',
+        handler: () => json(200, [{ rate: 3000, payout: 300, ramp: 'provider-b', paymentMethod: 'sepa' }]),
+      },
+    ]);
+    const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+
+    await proto.quoteSell({
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      cryptoAmount: '0.1',
+      paymentMethod: 'sepa',
+      networkCode: 'ethereum',
+      country: 'US',
+    });
+
+    const call = http.calls.find((c) => c.url.includes('/quotes/eth/usd'));
+    expect(call?.url).toBe(
+      'https://api-stg.onramper.com/quotes/eth/usd?type=sell&amount=0.1&paymentMethod=sepa&network=ethereum&country=US',
+    );
+  });
+
+  it('re-fetches supported once the cache TTL has elapsed (cacheTime 0 never hits)', async () => {
+    let hits = 0;
+    const http = mockHttp([
+      {
+        match: '/supported',
+        handler: () => {
+          hits += 1;
+          return json(200, { message: { crypto: [], fiat: [] } });
+        },
+      },
+    ]);
+    const proto = new OnramperFiatProtocol(undefined, baseConfig({ cacheTime: 0, adapters: http.adapters() }));
+
+    await proto.getSupportedFiatCurrencies();
+    await proto.getSupportedFiatCurrencies();
+
+    expect(hits).toBe(2);
+    expect(http.calls.filter((c) => c.url.includes('/supported'))).toHaveLength(2);
+  });
+
+  it('caches the countries response across calls', async () => {
+    let hits = 0;
+    const http = mockHttp([
+      {
+        match: '/supported/countries',
+        handler: () => {
+          hits += 1;
+          return json(200, { message: [{ countryCode: 'AD', countryName: 'Andorra' }] });
+        },
+      },
+    ]);
+    const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+
+    const first = await proto.getSupportedCountries();
+    const second = await proto.getSupportedCountries();
+
+    expect(second).toEqual(first);
+    expect(hits).toBe(1);
   });
 });

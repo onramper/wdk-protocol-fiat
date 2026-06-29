@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OnramperFiatProtocol } from '../src/index.ts';
+import type { FiatTxStatus } from '../src/types/wdk.ts';
 import { decodeProofPayload } from './dpop-helpers.ts';
 import { baseConfig, json, mockHttp, tokenRoute } from './helpers.ts';
 
@@ -25,12 +26,18 @@ describe('happy paths not covered by the conformance suite', () => {
 
     const quote = await proto.quoteSell({ fiatCurrency: 'usd', cryptoAsset: 'eth', cryptoAmount: '0.1' });
 
-    expect(quote.provider).toBe('provider-b');
-    expect(quote.rate).toBe('3000');
+    expect(quote).toEqual({
+      direction: 'sell',
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      fiatAmount: '300',
+      cryptoAmount: '0.1',
+      rate: '3000',
+      paymentMethod: 'sepa',
+      provider: 'provider-b',
+    });
     const call = http.calls.find((c) => c.url.includes('/quotes/eth/usd'));
-    expect(call).toBeDefined();
-    expect(call?.url).toContain('type=sell');
-    expect(call?.url).toContain('amount=0.1');
+    expect(call?.url).toBe('https://api-stg.onramper.com/quotes/eth/usd?type=sell&amount=0.1');
     expect(call?.headers.Authorization).toBe('pk_test_abc123');
     expect(call?.headers['X-Onramper-DPoP']).toBeUndefined(); // public data path, no envelope
   });
@@ -88,12 +95,215 @@ describe('happy paths not covered by the conformance suite', () => {
     await proto.getTransactionDetail('sess_abc');
 
     const txCall = http.calls.find((c) => c.url.includes('/checkout/session/'));
-    expect(txCall).toBeDefined();
-    expect(txCall?.headers['X-Onramper-DPoP']).toBeTruthy();
-    const proof = decodeProofPayload(txCall?.headers['X-Onramper-DPoP'] as string);
+    expect(txCall?.url).toBe('https://api-stg.onramper.com/checkout/session/sess_abc/transaction');
+    const dpop = txCall?.headers['X-Onramper-DPoP'] as string;
+    expect(dpop.split('.')).toHaveLength(3); // compact JWS: header.payload.signature
+    const proof = decodeProofPayload(dpop);
     expect(proof.htm).toBe('GET');
     expect(proof.htu).toBe('https://api-stg.onramper.com/checkout/session/sess_abc/transaction');
-    expect(proof.ath).toBeTruthy(); // access-token hash binding (ath) present
+    // ath = base64url(SHA-256('at_test_token')) — binds the proof to the minted access token.
+    expect(proof.ath).toBe('-mGyOiFTbLojM09saeg6_QOXFhzLaQ0UA7GFOYBxzGs');
     expect(txCall?.headers['X-Onramper-SDK-Session']).toBe('Bearer at_test_token');
+  });
+
+  describe('environment -> base URL selection', () => {
+    const supportedHandler = {
+      match: '/supported',
+      handler: () => json(200, { message: { crypto: [], fiat: [] } }),
+    };
+    const signUrl = async () => 'https://signed.example';
+
+    it('defaults to production when environment is omitted', async () => {
+      const http = mockHttp([supportedHandler]);
+      const proto = new OnramperFiatProtocol(undefined, {
+        apiKey: 'pk_test_abc123',
+        signUrl,
+        adapters: http.adapters(),
+      });
+      await proto.getSupportedCryptoAssets();
+      expect(http.calls.find((c) => c.url.includes('/supported'))?.url).toBe('https://api.onramper.com/supported');
+    });
+
+    it('uses the staging host for environment "staging"', async () => {
+      const http = mockHttp([supportedHandler]);
+      const proto = new OnramperFiatProtocol(undefined, {
+        apiKey: 'pk_test_abc123',
+        signUrl,
+        environment: 'staging',
+        adapters: http.adapters(),
+      });
+      await proto.getSupportedCryptoAssets();
+      expect(http.calls.find((c) => c.url.includes('/supported'))?.url).toBe('https://api-stg.onramper.com/supported');
+    });
+
+    it('honours an explicit baseUrl override', async () => {
+      const http = mockHttp([supportedHandler]);
+      const proto = new OnramperFiatProtocol(undefined, {
+        apiKey: 'pk_test_abc123',
+        signUrl,
+        baseUrl: 'https://custom.example.com',
+        adapters: http.adapters(),
+      });
+      await proto.getSupportedCryptoAssets();
+      expect(http.calls.find((c) => c.url.includes('/supported'))?.url).toBe('https://custom.example.com/supported');
+    });
+  });
+
+  describe('getTransactionDetail() status normalisation', () => {
+    const cases: Array<[string, FiatTxStatus]> = [
+      ['success', 'completed'],
+      ['paid', 'completed'],
+      ['completed', 'completed'],
+      ['declined', 'failed'],
+      ['cancelled', 'failed'],
+      ['canceled', 'failed'],
+      ['failed', 'failed'],
+      ['expired', 'expired'],
+      ['in_progress', 'processing'],
+      ['inprogress', 'processing'],
+      ['new', 'pending'],
+      ['created', 'pending'],
+      ['weird_state', 'unknown'],
+    ];
+
+    it.each(cases)('maps provider status %s -> %s', async (rawStatus, expected) => {
+      const http = mockHttp([
+        tokenRoute,
+        {
+          match: '/checkout/session/',
+          handler: () =>
+            json(200, {
+              valid: true,
+              transactionInformation: { transactionId: 'tx_1', status: rawStatus, onramp: 'p' },
+            }),
+        },
+      ]);
+      const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+      const detail = await proto.getTransactionDetail('s');
+      expect(detail.status).toBe(expected);
+    });
+  });
+
+  describe('quote selection and mapping', () => {
+    it('skips errored entries and maps the first priced quote with all fee fields', async () => {
+      const http = mockHttp([
+        {
+          match: '/quotes/usd/eth',
+          handler: () =>
+            json(200, [
+              { ramp: 'bad', errors: [{ errorId: 1 }] },
+              {
+                rate: 2000,
+                payout: 0.05,
+                ramp: 'provider-b',
+                networkFee: 1,
+                transactionFee: 2,
+                quoteId: 'q9',
+                paymentMethod: 'creditcard',
+              },
+            ]),
+        },
+      ]);
+      const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+      const quote = await proto.quoteBuy({ fiatCurrency: 'usd', cryptoAsset: 'eth', fiatAmount: 100 });
+      expect(quote).toEqual({
+        direction: 'buy',
+        fiatCurrency: 'usd',
+        cryptoAsset: 'eth',
+        fiatAmount: '100',
+        cryptoAmount: '0.05',
+        rate: '2000',
+        networkFee: '1',
+        transactionFee: '2',
+        paymentMethod: 'creditcard',
+        provider: 'provider-b',
+        quoteId: 'q9',
+      });
+    });
+
+    it('reads the alternative {quotes:[...]} wrapper shape', async () => {
+      const http = mockHttp([
+        { match: '/quotes/usd/eth', handler: () => json(200, { quotes: [{ rate: 1000, payout: 0.01, ramp: 'p' }] }) },
+      ]);
+      const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+      const quote = await proto.quoteBuy({ fiatCurrency: 'usd', cryptoAsset: 'eth', fiatAmount: 100 });
+      expect(quote.provider).toBe('p');
+      expect(quote.rate).toBe('1000');
+      expect(quote.cryptoAmount).toBe('0.01');
+    });
+
+    it('echoes payout into fiatAmount for sell', async () => {
+      const http = mockHttp([
+        { match: '/quotes/eth/usd', handler: () => json(200, [{ rate: 3000, payout: 250, ramp: 'provider-b' }]) },
+      ]);
+      const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+      const quote = await proto.quoteSell({ fiatCurrency: 'usd', cryptoAsset: 'eth', cryptoAmount: '0.08' });
+      expect(quote.fiatAmount).toBe('250');
+      expect(quote.cryptoAmount).toBe('0.08');
+    });
+  });
+
+  describe('getTransactionDetail() field mapping', () => {
+    it('maps populated fields, coerces numbers to strings, and honours the ramp alias', async () => {
+      const http = mockHttp([
+        tokenRoute,
+        {
+          match: '/checkout/session/',
+          handler: () =>
+            json(200, {
+              valid: true,
+              transactionInformation: {
+                transactionId: 'tx_1',
+                status: 'completed',
+                crypto: 'eth',
+                fiat: 'usd',
+                fiatAmount: 100,
+                cryptoAmount: 0.033,
+                txHash: '0xdead',
+                ramp: 'provider-b',
+              },
+            }),
+        },
+      ]);
+      const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+      const detail = await proto.getTransactionDetail('s');
+      expect(detail).toEqual({
+        status: 'completed',
+        cryptoAsset: 'eth',
+        fiatCurrency: 'usd',
+        fiatAmount: '100',
+        cryptoAmount: '0.033',
+        txHash: '0xdead',
+        provider: 'provider-b',
+      });
+    });
+
+    it('falls back to the bare record when the transactionInformation envelope is absent', async () => {
+      const http = mockHttp([
+        tokenRoute,
+        {
+          match: '/checkout/session/',
+          handler: () => json(200, { transactionId: 'tx_1', status: 'pending', onramp: 'p' }),
+        },
+      ]);
+      const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+      const detail = await proto.getTransactionDetail('s');
+      expect(detail).toEqual({ status: 'pending', cryptoAsset: '', fiatCurrency: '', provider: 'p' });
+    });
+  });
+
+  it('maps an unwrapped supported payload with default decimals and id/name fallbacks', async () => {
+    const http = mockHttp([
+      {
+        match: '/supported',
+        handler: () => json(200, { crypto: [{ id: 'btc', network: 'bitcoin' }], fiat: [{ id: 'eur' }] }),
+      },
+    ]);
+    const proto = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
+
+    expect(await proto.getSupportedCryptoAssets()).toEqual([
+      { code: 'btc', networkCode: 'bitcoin', decimals: 18, name: 'btc' },
+    ]);
+    expect(await proto.getSupportedFiatCurrencies()).toEqual([{ code: 'eur', decimals: 2, name: 'eur' }]);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { OnramperErrorCode } from '../src/errors/codes.ts';
 import { OnramperError } from '../src/errors/errors.ts';
 import { OnramperFiatProtocol } from '../src/index.ts';
+import type { SignUrlParams } from '../src/types/onramper.ts';
 import { decodeProofPayload } from './dpop-helpers.ts';
 import { baseConfig, json, mockHttp, tokenRoute } from './helpers.ts';
 
@@ -77,7 +78,7 @@ describe('HTTP error mapping — every failure surfaces a typed OnramperError', 
       undefined,
       baseConfig({ adapters: http.adapters() }),
     ).getTransactionDetail('s');
-    expect(detail.status).toBe('completed');
+    expect(detail).toEqual({ status: 'completed', cryptoAsset: '', fiatCurrency: '', provider: 'p' });
     expect(txCalls).toBe(2); // exactly one retry
   });
 
@@ -308,16 +309,70 @@ describe('quote selection requires a priced entry', () => {
 });
 
 describe('signed-URL builders', () => {
-  it('buy() forwards quoteId to the signUrl callback', async () => {
-    let seen: { quoteId?: string } | undefined;
+  it('buy() forwards the full widget params to the signUrl callback', async () => {
+    let seen: SignUrlParams | undefined;
     const p = proto({
       signUrl: async (params) => {
         seen = params;
         return 'https://x';
       },
     });
-    await p.buy({ fiatCurrency: 'usd', cryptoAsset: 'eth', fiatAmount: 100, recipient: '0xabc', quoteId: 'q-42' });
-    expect(seen?.quoteId).toBe('q-42');
+    const result = await p.buy({
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      fiatAmount: 100,
+      recipient: '0xabc',
+      quoteId: 'q-42',
+    });
+    expect(result).toEqual({ buyUrl: 'https://x' });
+    expect(seen).toEqual({
+      direction: 'buy',
+      apiKey: 'pk_test_abc123',
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      networkCode: undefined,
+      fiatAmount: '100',
+      address: '0xabc',
+      memo: undefined,
+      paymentMethod: undefined,
+      country: undefined,
+      quoteId: 'q-42',
+    });
+  });
+
+  it('sell() forwards the full widget params (refundAddress -> address) to the signUrl callback', async () => {
+    let seen: SignUrlParams | undefined;
+    const p = proto({
+      signUrl: async (params) => {
+        seen = params;
+        return 'https://x';
+      },
+    });
+    const result = await p.sell({
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      cryptoAmount: '0.5',
+      refundAddress: '0xdef',
+      networkCode: 'ethereum',
+      memo: 'm1',
+      paymentMethod: 'sepa',
+      country: 'US',
+      quoteId: 'q1',
+    });
+    expect(result).toEqual({ sellUrl: 'https://x' });
+    expect(seen).toEqual({
+      direction: 'sell',
+      apiKey: 'pk_test_abc123',
+      fiatCurrency: 'usd',
+      cryptoAsset: 'eth',
+      networkCode: 'ethereum',
+      cryptoAmount: '0.5',
+      address: '0xdef',
+      memo: 'm1',
+      paymentMethod: 'sepa',
+      country: 'US',
+      quoteId: 'q1',
+    });
   });
 
   it('a signUrl rejection propagates to the caller', async () => {

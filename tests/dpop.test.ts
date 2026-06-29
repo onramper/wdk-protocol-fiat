@@ -27,11 +27,16 @@ describe('DPoP proof', () => {
     expect(header.typ).toBe('dpop+jwt');
     expect(header.alg).toBe('ES256');
     expect((header.jwk as Record<string, unknown>).crv).toBe('P-256');
+    expect((header.jwk as Record<string, unknown>).kty).toBe('EC');
     // htm uppercased, htu stripped of query + fragment.
     expect(payload.htm).toBe('GET');
     expect(payload.htu).toBe('https://api.stg.onramper.com/the API/v1/supported');
-    expect(typeof payload.jti).toBe('string');
-    expect(typeof payload.ath).toBe('string');
+    expect(payload.jti).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // ath = base64url(SHA-256('at_test')) — the access-token binding the server enforces.
+    expect(payload.ath).toBe('o7NISW7rpXoPt8ttNdRBDEeIaMoETNyPA99WKYZLqXo');
+    const nowSec = Math.floor(Date.now() / 1000);
+    expect(payload.iat).toBeGreaterThanOrEqual(nowSec - 5);
+    expect(payload.iat).toBeLessThanOrEqual(nowSec + 1);
 
     // The signature must verify against the embedded public JWK.
     const jwk = header.jwk as JsonWebKey;
@@ -55,8 +60,15 @@ describe('DPoP proof', () => {
   it('computes a stable RFC 7638 thumbprint over canonical members', async () => {
     const crypto = createWebCryptoAdapter();
     const tp = await jwkThumbprint(crypto, { kty: 'EC', crv: 'P-256', x: 'AAA', y: 'BBB' });
-    expect(typeof tp).toBe('string');
-    expect(tp).not.toContain('=');
-    expect(tp).not.toContain('+');
+    // RFC 7638 thumbprint over {"crv":"P-256","kty":"EC","x":"AAA","y":"BBB"}; base64url, no '=' or '+'.
+    expect(tp).toBe('i1UpPK86aAbPsZ4k7q-iPFEaeHZoKHij5aFPKk8XWTM');
+  });
+
+  it('omits the ath claim when no access token is supplied', async () => {
+    const crypto = createWebCryptoAdapter();
+    const key = await crypto.generateEs256KeyPair();
+    const proof = await buildDpopProof(crypto, key, { method: 'get', url: 'https://api.stg.onramper.com/x' });
+    const payload = decodeSegment(proof.split('.')[1] as string);
+    expect(payload.ath).toBeUndefined();
   });
 });
