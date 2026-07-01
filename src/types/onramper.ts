@@ -10,8 +10,19 @@ export type OnramperEnvironment = 'production' | 'sandbox' | 'staging';
  */
 export type OnramperChannel = 'wdk-web' | 'wdk-node';
 
+/**
+ * Exactly one of `fiatAmount` / `cryptoAmount`, discriminated by `?: never` on
+ * the other — a caller (or, internally, an object literal) can't populate both
+ * sides of an XOR amount pair. Shared by every layer that carries a
+ * buy/sell-side amount (protocol resolution, widget-URL params, `signUrl`
+ * params) so the shape can't drift between them.
+ */
+export type AmountXor<K1 extends string, K2 extends string, V = string> =
+  | ({ [P in K1]: V } & { [P in K2]?: never })
+  | ({ [P in K2]: V } & { [P in K1]?: never });
+
 /** The widget amount, on whichever side the caller specified — already a decimal string. */
-type SignUrlAmount = { fiatAmount: string; cryptoAmount?: never } | { cryptoAmount: string; fiatAmount?: never };
+type SignUrlAmount = AmountXor<'fiatAmount', 'cryptoAmount'>;
 
 /**
  * Parameters handed to the consumer's `signUrl` callback for buy/sell. These are

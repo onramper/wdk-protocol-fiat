@@ -21,23 +21,6 @@ export interface EnvelopeInput {
 }
 
 /**
- * The headers `buildEnvelopeHeaders` produces for one session-gated request.
- * Extends the index signature `HttpRequest.headers` expects, so the result
- * can be passed straight through to an `HttpAdapter`.
- */
-export interface EnvelopeHeaders {
-  [header: string]: string;
-  Authorization: string;
-  'X-Onramper-SDK-Session': string;
-  'X-Onramper-DPoP': string;
-  'X-Onramper-Nonce': string;
-  'X-Onramper-Timestamp': string;
-  'X-Onramper-Device': string;
-  'X-Onramper-Channel': string;
-  'X-Onramper-SDK-Version': string;
-}
-
-/**
  * Maps the channel to the runtime platform token used in the SDK-version header.
  * The server cross-checks the channel's runtime suffix against this token, so
  * `wdk-web` → `web` yields `X-Onramper-SDK-Version: web-<semver>`.
@@ -52,12 +35,20 @@ function platformForChannel(channel: OnramperChannel): string {
 /**
  * The per-request security envelope enforced by the API. Every authenticated
  * data call carries a fresh DPoP proof, nonce, timestamp, and device
- * fingerprint.
+ * fingerprint. The returned headers:
+ * - `Authorization` — the publishable partner API key.
+ * - `X-Onramper-SDK-Session` — `Bearer <accessToken>`.
+ * - `X-Onramper-DPoP` — the compact DPoP proof JWS bound to this request.
+ * - `X-Onramper-Nonce` — fresh per-request replay-protection value.
+ * - `X-Onramper-Timestamp` — the request's ISO-8601 issue time.
+ * - `X-Onramper-Device` — the active `FingerprintAdapter`'s device fingerprint.
+ * - `X-Onramper-Channel` / `X-Onramper-SDK-Version` — client platform + version.
  *
  * @param input - The per-request values to embed in the envelope.
- * @returns The headers to attach to the session-gated request.
+ * @returns The headers to attach to the session-gated request, keyed by
+ *   header name — pass straight through to an `HttpAdapter`.
  */
-export function buildEnvelopeHeaders(input: EnvelopeInput): EnvelopeHeaders {
+export function buildEnvelopeHeaders(input: EnvelopeInput): Record<string, string> {
   return {
     Authorization: input.apiKey,
     'X-Onramper-SDK-Session': `Bearer ${input.accessToken}`,

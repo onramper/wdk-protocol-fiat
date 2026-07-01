@@ -15,7 +15,7 @@ import {
   toSupportedFiatCurrencies,
 } from './transforms/supported.ts';
 import { toFiatTransactionDetail } from './transforms/transaction.ts';
-import type { OnramperChannel, OnramperFiatConfig } from './types/onramper.ts';
+import type { AmountXor, OnramperChannel, OnramperFiatConfig } from './types/onramper.ts';
 import type {
   BuyResult,
   FiatDirection,
@@ -62,7 +62,7 @@ interface AssetDecimals {
 }
 
 /** Decimal amount string in the widget's expected form, on the side the caller specified. */
-type WidgetAmounts = { fiatAmount: string; cryptoAmount?: never } | { cryptoAmount: string; fiatAmount?: never };
+type WidgetAmounts = AmountXor<'fiatAmount', 'cryptoAmount'>;
 
 /**
  * Onramper's WDK fiat protocol — extends `FiatProtocol` from

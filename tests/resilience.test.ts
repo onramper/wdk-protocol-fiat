@@ -205,6 +205,28 @@ describe('token lifecycle', () => {
     expect(decodeProofPayload(second.headers['X-Onramper-DPoP'] as string).nonce).toBe('srv-nonce-xyz');
   });
 
+  it('DPoP nonce challenge is recognised regardless of header casing', async () => {
+    // Casing not covered by a hardcoded 'dpop-nonce' / 'DPoP-Nonce' check —
+    // guards the case-insensitive scan in readDpopNonce against regression.
+    let calls = 0;
+    const http = mockHttp([
+      {
+        match: 'client-sessions/tokens',
+        handler: () => {
+          calls += 1;
+          return calls === 1
+            ? raw(400, JSON.stringify({ error: 'use_dpop_nonce' }), { 'DPOP-NONCE': 'srv-nonce-upper' })
+            : json(200, { access_token: 'at', refresh_token: 'rt', expires_in: 900, tier: 1 });
+        },
+      },
+      txOk,
+    ]);
+    await new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() })).getTransactionDetail('s');
+    expect(calls).toBe(2);
+    const second = http.calls.filter((c) => c.url.includes('client-sessions/tokens'))[1];
+    expect(decodeProofPayload(second.headers['X-Onramper-DPoP'] as string).nonce).toBe('srv-nonce-upper');
+  });
+
   it('DPoP proofs are well-formed ES256 JWS, bind ath only once an access token exists, and reuse one key per session', async () => {
     const http = mockHttp([tokenRoute, txOk]);
     const p = new OnramperFiatProtocol(undefined, baseConfig({ adapters: http.adapters() }));
@@ -445,6 +467,21 @@ describe('signed-URL builders', () => {
       country: 'US',
       quoteId: 'q1',
     });
+  });
+
+  it('only the active amount side is a key on the signUrl params — the inactive side is absent, not undefined', async () => {
+    let seen: SignUrlParams | undefined;
+    const http = mockHttp([supportedRoute]);
+    const p = proto({
+      adapters: http.adapters(),
+      signUrl: async (params) => {
+        seen = params;
+        return 'https://x';
+      },
+    });
+    await p.buy({ fiatCurrency: 'usd', cryptoAsset: 'eth', fiatAmount: 100_00n, recipient: '0xabc' });
+    expect('fiatAmount' in (seen as object)).toBe(true);
+    expect('cryptoAmount' in (seen as object)).toBe(false);
   });
 
   it('a raw signUrl rejection is wrapped as a typed OnramperError, preserving the cause', async () => {

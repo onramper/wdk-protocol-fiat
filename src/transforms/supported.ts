@@ -122,14 +122,6 @@ export function toSupportedCountries(raw: unknown): SupportedCountry[] {
   }));
 }
 
-/** The real (undefaulted) decimals for a crypto/fiat pair, when each side was found. */
-export interface SupportedPairDecimals {
-  /** The matched crypto entry's real decimals; absent if the crypto code is unsupported. */
-  crypto?: Pick<RawCrypto, 'decimals'>;
-  /** The matched fiat entry's real decimals; absent if the fiat code is unsupported. */
-  fiat?: Pick<RawFiat, 'decimals'>;
-}
-
 /**
  * Look up the raw crypto + fiat entries for a pair in a `GET /supported` payload,
  * WITHOUT the display defaults the mapping functions apply. The money path (amount
@@ -139,9 +131,14 @@ export interface SupportedPairDecimals {
  * @param raw - The raw `GET /supported` response body (wrapped or unwrapped).
  * @param cryptoCode - The crypto asset code to look up.
  * @param fiatCode - The fiat currency code to look up.
- * @returns The matched entries; either side is absent if its code is unsupported.
+ * @returns The matched entries' real (undefaulted) decimals; either side is
+ *   `undefined` if its code is unsupported.
  */
-export function findSupportedPair(raw: unknown, cryptoCode: string, fiatCode: string): SupportedPairDecimals {
+export function findSupportedPair(
+  raw: unknown,
+  cryptoCode: string,
+  fiatCode: string,
+): { crypto?: Pick<RawCrypto, 'decimals'>; fiat?: Pick<RawFiat, 'decimals'> } {
   const supported = (unwrap(raw) as RawSupported) ?? {};
   const crypto = (supported.crypto ?? []).find((c) => (c.code ?? c.id) === cryptoCode);
   const fiat = (supported.fiat ?? []).find((f) => (f.code ?? f.id) === fiatCode);

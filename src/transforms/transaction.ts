@@ -67,9 +67,9 @@ function normaliseStatus(raw: string | undefined): FiatTransactionStatus {
  * `FiatTransactionDetail` (status + asset + currency), with the raw status, hash,
  * provider and resolved amounts surfaced under `metadata`. Field aliases
  * (cryptoAsset/crypto, fiatCurrency/fiat, provider/ramp/onramp) are resolved in
- * that order — the first field listed wins when both are present. If the
- * response carries no `transactionInformation` envelope, `raw` itself is tried
- * as the transaction record before falling back to an empty object.
+ * that order — the first field listed wins when both are present. Tolerant of
+ * an unwrapped transaction record too, since the envelope shape isn't part of
+ * any versioned contract with the providers behind `transactionInformation`.
  *
  * @param raw - The raw session-transaction response body.
  * @returns The mapped transaction detail.

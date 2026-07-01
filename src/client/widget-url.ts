@@ -1,5 +1,5 @@
 import { OnramperError, OnramperErrorCode } from '../errors.ts';
-import type { SignUrl, SignUrlParams } from '../types/onramper.ts';
+import type { AmountXor, SignUrl, SignUrlParams } from '../types/onramper.ts';
 import type { OnramperRequestConfig } from '../types/wdk.ts';
 
 /**
@@ -11,7 +11,7 @@ import type { OnramperRequestConfig } from '../types/wdk.ts';
  */
 
 /** The widget amount, on whichever side the caller specified — decimal strings, already converted from base units. */
-type WidgetUrlAmount = { fiatAmount: string; cryptoAmount?: never } | { cryptoAmount: string; fiatAmount?: never };
+type WidgetUrlAmount = AmountXor<'fiatAmount', 'cryptoAmount'>;
 
 /** Common (non-amount) fields for a buy/sell widget URL. */
 type WidgetUrlCommon = {
@@ -29,6 +29,11 @@ type WidgetUrlInput = WidgetUrlCommon & WidgetUrlAmount;
 
 /**
  * Builds the `SignUrlParams` the consumer's `signUrl` callback receives.
+ *
+ * Only the active amount side's key is present on the returned object — the
+ * inactive side (`fiatAmount` or `cryptoAmount`) is omitted entirely, not set
+ * to `undefined`. A consumer checking `'cryptoAmount' in params` or iterating
+ * `Object.keys(params)` sees exactly one of the two keys, never both.
  *
  * @param direction - Whether this is a buy or sell widget URL.
  * @param apiKey - The publishable partner API key.
